@@ -79,3 +79,20 @@ pub struct MultiBlockMonitorConfig {
 	#[clap(long, default_value_t = false, hide = true)]
 	pub shady: bool,
 }
+
+/// Configuration for the predict command.
+#[derive(Debug, Clone, clap::Parser)]
+#[cfg_attr(test, derive(PartialEq))]
+pub struct PredictConfig {
+	/// JSON output file path.
+	#[clap(long, default_value = "prediction_result.json")]
+	pub output: String,
+
+	/// JSON file with custom nominators and validators.
+	#[clap(long)]
+	pub custom_nominators_validators: Option<String>,
+
+	/// Number of validators to elect (maps to desired_targets in SDK's mine_solution() fn).
+	#[clap(long)]
+	pub desired_validators: Option<u32>,
+}

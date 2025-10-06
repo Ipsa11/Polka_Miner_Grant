@@ -85,6 +85,9 @@ pub enum Command {
 	Monitor(commands::types::MultiBlockMonitorConfig),
 	/// Check if the staking-miner metadata is compatible to a remote node.
 	Info,
+	/// Predict election results based on current or custom nominator/validator data.
+	Predict(commands::types::PredictConfig),
+
 }
 
 #[tokio::main]
@@ -144,6 +147,11 @@ async fn main() -> Result<(), Error> {
 		Command::Monitor(cfg) => {
 			macros::for_multi_block_runtime!(chain, {
 				commands::multi_block::monitor_cmd::<MinerConfig>(client, cfg).boxed()
+			})
+		},
+		Command::Predict(cfg) => {
+			macros::for_multi_block_runtime!(chain, {
+				commands::multi_block::predict_cmd::<MinerConfig>(client, cfg).boxed()
 			})
 		},
 	};
@@ -430,3 +438,53 @@ mod tests {
 		);
 	}
 }
+
+
+
+#[test]
+fn cli_predict_works() {
+	let opt = Opt::try_parse_from([
+		env!("CARGO_PKG_NAME"),
+		"--uri",
+		"ws://127.0.0.1:9944",
+		"predict",
+		"--output",
+		"test_prediction.json",
+		"--custom-nominators-validators",
+		"custom_setup.json",
+		"--desired-validators",
+		"300",
+	])
+	.unwrap();
+
+	assert_eq!(opt.uri, "ws://127.0.0.1:9944");
+	match opt.command {
+		Command::Predict(cfg) => {
+			assert_eq!(cfg.output, "test_prediction.json");
+			assert_eq!(cfg.custom_nominators_validators, Some("custom_setup.json".to_string()));
+			assert_eq!(cfg.desired_validators, Some(300));
+		},
+		_ => panic!("Expected Predict command"),
+	}
+}
+
+#[test]
+fn cli_predict_defaults_works() {
+	let opt = Opt::try_parse_from([
+		env!("CARGO_PKG_NAME"),
+		"--uri",
+		"ws://127.0.0.1:9944",
+		"predict",
+	])
+	.unwrap();
+
+	match opt.command {
+		Command::Predict(cfg) => {
+			assert_eq!(cfg.output, "prediction_result.json");
+			assert_eq!(cfg.custom_nominators_validators, None);
+			assert_eq!(cfg.desired_validators, None);
+		},
+		_ => panic!("Expected Predict command"),
+	}
+}
+

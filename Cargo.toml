@@ -28,6 +28,8 @@ tokio = { version = "1.47", features = [
   "signal",
 ] }
 pin-project-lite = "0.2"
+chrono = { version = "0.4", features = ["serde"] }
+hex = "0.4"
 
 # subxt
 scale-value = "0.18"
