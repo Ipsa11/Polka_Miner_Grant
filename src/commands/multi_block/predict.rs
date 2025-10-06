@@ -321,6 +321,8 @@ where
 
     let storage = utils::storage_at_head(&client).await?;
 
+	println!("Aagi storage");
+
     // ---------------------------------
     // Collect validators + self stake
     // ---------------------------------
@@ -343,39 +345,64 @@ where
             }
         }
     }
+	log::info!("Validators Agge bhai ");
 
     // ---------------------------------
     // Collect nominators
     // ---------------------------------
     let mut voters: Vec<(RuntimeAccountId32, u128, Vec<RuntimeAccountId32>)> = Vec::new();
 
+	log::info!("Voter Agge bhai ");
+
     if let Ok(mut iter) = storage.iter(runtime::storage().staking().nominators_iter()).await {
-        while let Some(entry) = iter.try_next().await? {
-            if let Some(acc) = subxt_account_from_key_bytes(&entry.key_bytes) {
-                // Fetch nominators using SubxtAccountId
-                if let Some(noms) = storage.fetch(&runtime::storage().staking().nominators(acc.clone())).await? {
-                    let stake = storage
-                        .fetch(&runtime::storage().staking().ledger(acc.clone()))
-                        .await?
-                        .map(|l| l.total)
-                        .unwrap_or(0);
+    log::info!("Starting to iterate over nominators...");
+    
+    while let Some(entry) = iter.try_next().await? {
+        if let Some(acc) = subxt_account_from_key_bytes(&entry.key_bytes) {
+            log::info!("Processing account: {:?}", acc);
 
-                    if stake > 0 {
-                        // Convert targets to RuntimeAccountId32
-                        let targets = noms
-                            .targets
-                            .0
-                            .into_iter()
-                            .map(subxt_to_runtime_account)
-                            .collect::<Vec<_>>();
+            // Fetch nominators using SubxtAccountId
+            if let Some(noms) = storage.fetch(&runtime::storage().staking().nominators(acc.clone())).await? {
+                log::info!("Found nominators for account: {:?}", acc);
 
-                        let runtime_acc = subxt_to_runtime_account(acc); // convert now
-                        voters.push((runtime_acc, stake, targets));
-                    }
+                let stake = storage
+                    .fetch(&runtime::storage().staking().ledger(acc.clone()))
+                    .await?
+                    .map(|l| l.total)
+                    .unwrap_or(0);
+
+                log::info!("Stake for account {:?}: {}", acc, stake);
+
+                if stake > 0 {
+                    // Convert targets to RuntimeAccountId32
+                    let targets = noms
+                        .targets
+                        .0
+                        .into_iter()
+                        .map(subxt_to_runtime_account)
+                        .collect::<Vec<_>>();
+
+                    let runtime_acc = subxt_to_runtime_account(acc); // convert now
+                    log::info!("Account {:?} has targets: {:?}", runtime_acc, targets);
+
+                    voters.push((runtime_acc, stake, targets));
+                } else {
+                    log::info!("Skipping account {:?} due to zero stake", acc);
                 }
+            } else {
+                log::info!("No nominators found for account {:?}", acc);
             }
+        } else {
+            log::warn!("Failed to decode account from key bytes: {:?}", entry.key_bytes);
         }
     }
+
+    log::info!("Finished iterating over nominators. Total voters collected: {}", voters.len());
+}
+
+
+	log::info!("Snapshot bnaooo");
+
 
     // ---------------------------------
     // Build bounded snapshots

@@ -72,7 +72,8 @@ impl<F: Future> TimedFuture for F {}
 /// Helper to get storage at block.
 pub async fn storage_at(block: Option<Hash>, api: &ChainClient) -> Result<Storage, Error> {
 	if let Some(block_hash) = block {
-		Ok(api.storage().at(block_hash))
+		println!("*** BLock Hash {:?}",block_hash);
+		api.storage().at_latest().await.map_err(Into::into)
 	} else {
 		api.storage().at_latest().await.map_err(Into::into)
 	}
@@ -80,6 +81,7 @@ pub async fn storage_at(block: Option<Hash>, api: &ChainClient) -> Result<Storag
 
 pub async fn storage_at_head(api: &Client) -> Result<Storage, Error> {
 	let hash = get_latest_finalized_head(api.chain_api()).await?;
+	println!("*** Hash {:?}",hash);
 	storage_at(Some(hash), api.chain_api()).await
 }
 
