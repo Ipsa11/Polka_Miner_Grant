@@ -13,6 +13,7 @@ use crate::{
 	static_types::multi_block as static_types,
 	utils,
 };
+// no PerThing import needed
 // use polkadot_sdk::pallet_election_provider_multi_block::types::{
 //     SolutionOf,
 // };
@@ -34,7 +35,8 @@ use polkadot_sdk::frame_support::traits::Get; // For reading associated `Get` ty
 use polkadot_sdk::sp_runtime::AccountId32 as RuntimeAccountId32;
 use polkadot_sdk::frame_election_provider_support::NposSolution;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+// no direct import of sp_arithmetic; we will approximate weights without PerThing
+use std::collections::{HashMap, HashSet};
 use subxt::utils::AccountId32 as SubxtAccountId;
 
 /// Input format for custom nominators and validators
@@ -209,7 +211,7 @@ where
 	// Check if we have snapshot data available
 	let has_snapshot_data = matches!(
 		current_phase,
-		Phase::Signed(_) | Phase::Snapshot(_) | Phase::Done | Phase::Export(_)
+		Phase::Signed(_) | Phase::Snapshot(_) | Phase::Done | Phase::Export(_) | Phase::Unsigned(_)
 	);
 
 	if !has_snapshot_data {
@@ -270,6 +272,7 @@ where
         desired_validators,
         &target_snapshot,
         &voter_snapshot,
+        None,
     )?;
 
 	Ok(PredictionResult {
@@ -407,6 +410,7 @@ where
         desired_validators,
         &target_snapshot,
         &voter_snapshot,
+        Some(&validator_self_stake)
     )?;
 
     Ok(PredictionResult {
@@ -513,15 +517,10 @@ pub fn all_assignments<T: MinerConfig<AccountId = AccountId>>(
     Ok(assignments)
 }
 
-pub fn assignment_info<T: MinerConfig<AccountId = AccountId>>(assignment: &AssignmentOf<T>) -> (String, u128, u32) {
+pub fn assignment_info<T: MinerConfig<AccountId = AccountId>>(assignment: &AssignmentOf<T>) -> (String, usize) {
     let account_hex = format!("0x{}", hex::encode(assignment.who.encode()));
-
-    // Approximate total by counting nominators; avoids Accuracy conversions
-    let total_stake_u128: u128 = assignment.distribution.len() as u128;
-
-    let nominators_count = assignment.distribution.len() as u32;
-
-    (account_hex, total_stake_u128, nominators_count)
+    let targets_count = assignment.distribution.len();
+    (account_hex, targets_count)
 }
 
 /// Process a paged raw solution into PredictionResults
@@ -530,41 +529,76 @@ pub fn process_solution_results<T: MinerConfig<AccountId = AccountId>>(
     desired_validators: u32,
     target_snapshot: &crate::commands::multi_block::types::TargetSnapshotPageOf<T>,
     voter_snapshot_pages: &Vec<crate::commands::multi_block::types::VoterSnapshotPageOf<T>>,
+    validator_self_stake: Option<&HashMap<AccountId, u128>>,
 ) -> Result<PredictionResults, Error> {
-    let mut active_validators = Vec::new();
-    let mut total_staked = 0u128;
-    let mut stake_values = Vec::new();
+    // Build voter -> stake map from snapshot pages
+    let mut voter_stake: HashMap<AccountId, u128> = HashMap::new();
+    for page in voter_snapshot_pages.iter() {
+        for (who, stake, _targets) in page.iter() {
+            voter_stake.insert(who.clone(), *stake as u128);
+        }
+    }
 
+    // Convert solution pages -> voter assignments
     let assignments = all_assignments(paged_raw_solution, target_snapshot, voter_snapshot_pages)?;
 
-    for assignment in assignments.into_iter().take(desired_validators as usize) {
-        let (account_hex, total_stake_u128, nominators_count) =
-            assignment_info::<T>(&assignment); // specify T explicitly
+    // Aggregate per validator totals using assignment weights (fallback to equal split if PerThing not available)
+    let mut validator_total: HashMap<AccountId, u128> = HashMap::new();
+    let mut validator_nominators: HashMap<AccountId, HashSet<AccountId>> = HashMap::new();
 
+    for voter_assignment in assignments {
+        let voter = voter_assignment.who.clone();
+        let Some(stake) = voter_stake.get(&voter).copied() else { continue };
+
+        // Equal-split approximation across all edges for this voter
+        let edges = voter_assignment.distribution.len() as u128;
+        if edges == 0 { continue }
+        let part = stake / edges;
+        for (validator, _weight) in voter_assignment.distribution.iter() {
+            *validator_total.entry(validator.clone()).or_insert(0) += part;
+            validator_nominators
+                .entry(validator.clone())
+                .or_insert_with(HashSet::new)
+                .insert(voter.clone());
+        }
+    }
+
+    // Sort validators by total stake desc and take top desired_validators
+    let mut validators: Vec<(AccountId, u128, u32)> = validator_total
+        .into_iter()
+        .map(|(who, total)| {
+            let nominators_count = validator_nominators.get(&who).map(|s| s.len() as u32).unwrap_or(0);
+            (who, total, nominators_count)
+        })
+        .collect();
+    validators.sort_by(|a, b| b.1.cmp(&a.1));
+    validators.truncate(desired_validators as usize);
+
+    // Build output
+    let mut active_validators = Vec::with_capacity(validators.len());
+    let mut total_staked: u128 = 0;
+    let mut stake_values: Vec<u128> = Vec::with_capacity(validators.len());
+
+    for (who, total, nominators_count) in validators {
+        let account_hex = format!("0x{}", hex::encode(who.encode()));
+        let self_stake_val = validator_self_stake
+            .and_then(|m| m.get(&who).copied())
+            .unwrap_or(0);
         active_validators.push(ActiveValidator {
             account: account_hex,
-            total_stake: total_stake_u128,
-            self_stake: 0, // Optional: fill with self_stake if available
+            total_stake: total,
+            self_stake: self_stake_val,
             nominators_count,
         });
-
-        total_staked += total_stake_u128;
-        stake_values.push(total_stake_u128);
+        total_staked += total;
+        stake_values.push(total);
     }
 
     let minimum_stake = stake_values.iter().copied().min().unwrap_or(0);
-    let average_stake = if !stake_values.is_empty() {
-        total_staked / stake_values.len() as u128
-    } else {
-        0
-    };
+    let average_stake = if !stake_values.is_empty() { total_staked / stake_values.len() as u128 } else { 0 };
 
     Ok(PredictionResults {
         active_validators,
-        statistics: ElectionStatistics {
-            minimum_stake,
-            average_stake,
-            total_staked,
-        },
+        statistics: ElectionStatistics { minimum_stake, average_stake, total_staked },
     })
 }

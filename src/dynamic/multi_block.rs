@@ -189,7 +189,7 @@ where
 	T::VoterSnapshotPerBlock: Send,
 	T::MaxVotesPerVoter: Send,
 {
-	log::trace!(
+	log::info!(
 		target: LOG_TARGET,
 		"Mine_and_submit: election target snap size: {:?}, voter snap size: {:?}",
 		target_snapshot.len(),
@@ -199,7 +199,7 @@ where
 	let voter_pages: BoundedVec<VoterSnapshotPageOf<T>, T::Pages> =
 		BoundedVec::truncate_from(voter_snapshot_paged);
 
-	log::trace!(
+	log::info!(
 		target: LOG_TARGET,
 		"MineInput: desired_targets={desired_targets},pages={n_pages},target_snapshot_len={},voters_pages_len={},do_reduce={do_reduce},round={round},at={block_number}",
 		target_snapshot.len(), voter_pages.len()
