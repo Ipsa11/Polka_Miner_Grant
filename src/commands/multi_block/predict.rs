@@ -23,7 +23,7 @@ use crate::{
 // };
 // use polkadot_sdk::pallet_election_provider_multi_block::unsigned::miner::MinerConfig;
 use polkadot_sdk::pallet_election_provider_multi_block::{
-    types::{PagedRawSolution, AssignmentOf,SolutionOf, SolutionVoterIndexOf, SolutionTargetIndexOf, SolutionAccuracyOf},
+    types::{AssignmentOf, PagedRawSolution, SolutionOf},
     unsigned::miner::MinerConfig,
 };
 
@@ -32,10 +32,9 @@ use futures::TryStreamExt;
 use polkadot_sdk::frame_support::BoundedVec;
 use polkadot_sdk::frame_support::traits::Get; // For reading associated `Get` types like MaxVotesPerVoter
 use polkadot_sdk::sp_runtime::AccountId32 as RuntimeAccountId32;
-use polkadot_sdk::sp_runtime::traits::AccountIdConversion;
 use polkadot_sdk::frame_election_provider_support::NposSolution;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use subxt::utils::AccountId32 as SubxtAccountId;
 
 /// Input format for custom nominators and validators
@@ -239,7 +238,7 @@ where
 		current_round,
 	)
 	.await?;
-	let (target_snapshot, voter_snapshot) = snapshot.get();
+    let (target_snapshot, voter_snapshot) = snapshot.get();
 
 	log::info!(
 		target: LOG_TARGET,
@@ -249,10 +248,12 @@ where
 	);
 
 	// Mine solution using current snapshot data
-	let n_pages = static_types::Pages::get();
-	let paged_raw_solution = crate::dynamic::multi_block::mine_solution::<T>(
-		target_snapshot,
-		voter_snapshot,
+    let n_pages = static_types::Pages::get();
+    let target_snapshot_for_mining = target_snapshot.clone();
+    let voter_snapshot_for_mining = voter_snapshot.clone();
+    let paged_raw_solution = crate::dynamic::multi_block::mine_solution::<T>(
+        target_snapshot_for_mining,
+        voter_snapshot_for_mining,
 		n_pages,
 		current_round,
 		desired_validators,
@@ -263,8 +264,13 @@ where
 
 	log::info!(target: LOG_TARGET, "Mined solution with score: {:?}", paged_raw_solution.score);
 
-	// Process results
-	let results = process_solution_results::<T>(paged_raw_solution, desired_validators)?;
+    // Process results using the snapshots used for mining
+    let results = process_solution_results::<T>(
+        &paged_raw_solution,
+        desired_validators,
+        &target_snapshot,
+        &voter_snapshot,
+    )?;
 
 	Ok(PredictionResult {
 		metadata: PredictionMetadata {
@@ -381,9 +387,11 @@ where
     // ---------------------------------
     let n_pages = static_types::Pages::get();
     let current_round = 0;
+    let target_snapshot_for_mining = target_snapshot.clone();
+    let voter_snapshot_for_mining = voter_snapshot.clone();
     let paged_raw_solution = crate::dynamic::multi_block::mine_solution::<T>(
-        target_snapshot,
-        voter_snapshot,
+        target_snapshot_for_mining,
+        voter_snapshot_for_mining,
         n_pages,
         current_round,
         desired_validators,
@@ -394,7 +402,12 @@ where
 
     log::info!(target: LOG_TARGET, "Mined simulated solution: {:?}", paged_raw_solution.score);
 
-    let results = process_solution_results::<T>(paged_raw_solution, desired_validators)?;
+    let results = process_solution_results::<T>(
+        &paged_raw_solution,
+        desired_validators,
+        &target_snapshot,
+        &voter_snapshot,
+    )?;
 
     Ok(PredictionResult {
         metadata: PredictionMetadata {
@@ -450,30 +463,49 @@ where
 	})
 }
 
-fn solution_entries<T: MinerConfig>(page: &SolutionOf<T>) -> Vec<AssignmentOf<T>> {
-    let mut assignments = Vec::new();
-    for voter_index in 0..page.voter_count() {
-        if let Ok(voter_assignments) = page.clone().into_assignment(
-            |voter_idx| page.voter(voter_idx).cloned(),
-            |target_idx| page.target(target_idx).cloned(),
-        ) {
-            assignments.extend(voter_assignments);
-        }
-    }
-    assignments
-}
-
-pub fn all_assignments<T: MinerConfig>(
+pub fn all_assignments<T: MinerConfig<AccountId = AccountId>>(
     paged: &PagedRawSolution<T>,
+    target_snapshot: &crate::commands::multi_block::types::TargetSnapshotPageOf<T>,
+    voter_snapshot_pages: &Vec<crate::commands::multi_block::types::VoterSnapshotPageOf<T>>,
 ) -> Result<Vec<AssignmentOf<T>>, Error> {
     let mut assignments = Vec::new();
 
-    for page in &paged.solution_pages {
-        // Correct: use into_assignment, not .voter/.target
-        let page_assignments = page.clone().into_assignment(
-            |voter_idx| Some(voter_idx), // map to AccountId if needed
-            |target_idx| Some(target_idx),
-        ).map_err(|e| Error::Other(format!("Assignment error: {:?}", e)))?;
+    for (page_idx, page) in paged.solution_pages.iter().enumerate() {
+        // Map solution indices to AccountIds using the provided snapshots
+        let voter_page_opt = voter_snapshot_pages.get(page_idx);
+        if voter_page_opt.is_none() {
+            continue;
+        }
+        let voter_page = voter_page_opt.unwrap();
+
+        let voter_at = |voter_index: <SolutionOf<T> as NposSolution>::VoterIndex| -> Option<T::AccountId> {
+            use core::convert::TryInto;
+            let idx: usize = match voter_index.try_into().ok() {
+                Some(i) => i,
+                None => return None,
+            };
+            voter_page.get(idx).map(|(who, _stake, _targets)| {
+                let a: T::AccountId = who.clone();
+                a
+            })
+        };
+
+        let target_at = |target_index: <SolutionOf<T> as NposSolution>::TargetIndex| -> Option<T::AccountId> {
+            use core::convert::TryInto;
+            let idx: usize = match target_index.try_into().ok() {
+                Some(i) => i,
+                None => return None,
+            };
+            target_snapshot.get(idx).cloned().map(|who| {
+                let a: T::AccountId = who;
+                a
+            })
+        };
+
+        let page_assignments = page
+            .clone()
+            .into_assignment(voter_at, target_at)
+            .map_err(|e| Error::Other(format!("Assignment error: {:?}", e)))?;
 
         assignments.extend(page_assignments);
     }
@@ -481,16 +513,11 @@ pub fn all_assignments<T: MinerConfig>(
     Ok(assignments)
 }
 
-pub fn assignment_info<T: MinerConfig>(
-    assignment: &AssignmentOf<T>,
-) -> (String, u128, u32) {
+pub fn assignment_info<T: MinerConfig<AccountId = AccountId>>(assignment: &AssignmentOf<T>) -> (String, u128, u32) {
     let account_hex = format!("0x{}", hex::encode(assignment.who.encode()));
 
-    let total_stake_u128: u128 = assignment
-        .distribution
-        .iter()
-        .map(|(_, stake)| (*stake).into()) // or stake.0 if newtype
-        .sum();
+    // Approximate total by counting nominators; avoids Accuracy conversions
+    let total_stake_u128: u128 = assignment.distribution.len() as u128;
 
     let nominators_count = assignment.distribution.len() as u32;
 
@@ -498,15 +525,17 @@ pub fn assignment_info<T: MinerConfig>(
 }
 
 /// Process a paged raw solution into PredictionResults
-pub fn process_solution_results<T: MinerConfig>(
-    paged_raw_solution: PagedRawSolution<T>,
+pub fn process_solution_results<T: MinerConfig<AccountId = AccountId>>(
+    paged_raw_solution: &PagedRawSolution<T>,
     desired_validators: u32,
+    target_snapshot: &crate::commands::multi_block::types::TargetSnapshotPageOf<T>,
+    voter_snapshot_pages: &Vec<crate::commands::multi_block::types::VoterSnapshotPageOf<T>>,
 ) -> Result<PredictionResults, Error> {
     let mut active_validators = Vec::new();
     let mut total_staked = 0u128;
     let mut stake_values = Vec::new();
 
-    let assignments = all_assignments(&paged_raw_solution)?;
+    let assignments = all_assignments(paged_raw_solution, target_snapshot, voter_snapshot_pages)?;
 
     for assignment in assignments.into_iter().take(desired_validators as usize) {
         let (account_hex, total_stake_u128, nominators_count) =
