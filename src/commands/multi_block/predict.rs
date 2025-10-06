@@ -266,13 +266,26 @@ where
 
 	log::info!(target: LOG_TARGET, "Mined solution with score: {:?}", paged_raw_solution.score);
 
-    // Process results using the snapshots used for mining
+    // Build self-stake map for validators from snapshot (same block context)
+    let mut validator_self_stake: HashMap<AccountId, u128> = HashMap::new();
+    for who in target_snapshot.iter() {
+        // Convert runtime AccountId32 -> Subxt AccountId32 for storage fetch
+        let subxt_acc = SubxtAccountId(*who.as_ref());
+        let self_stake = storage
+            .fetch(&runtime::storage().staking().ledger(subxt_acc))
+            .await?
+            .map(|l| l.total)
+            .unwrap_or(0);
+        validator_self_stake.insert(who.clone(), self_stake);
+    }
+
+    // Process results using the snapshots and self stake
     let results = process_solution_results::<T>(
         &paged_raw_solution,
         desired_validators,
         &target_snapshot,
         &voter_snapshot,
-        None,
+        Some(&validator_self_stake),
     )?;
 
 	Ok(PredictionResult {
