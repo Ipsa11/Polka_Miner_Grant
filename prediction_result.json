@@ -1,131 +1,16 @@
 {
   "metadata": {
-    "timestamp": "2025-10-06T07:59:45.413678097+00:00",
-    "block_number": 12960787,
+    "timestamp": "2025-10-07T09:14:03.506060729+00:00",
+    "block_number": 12969619,
     "chain": "Westend Asset Hub",
-    "desired_validators": 19
+    "desired_validators": 297
   },
   "results": {
-    "active_validators": [
-      {
-        "account": "0xbc0009d1f7219b5d5fc1aa01fc20481f64d15810f01b4764eaa4c9b2070c1343",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x16f10a8db8b0880faaa79f0ca9e22f0607c89c4877f1c6c53f88819a749ee871",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x5091506c014f52749268df4f11a1c4e49d5b3bff7aaa155c0d05a318c2b4c67d",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xd42802f47198f67fe7ba7a348bda975007c0e7e742a7a51e05b7c86a82e04f5b",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x4cf9ce34eb7e8088f89a17e9df4308838009564de994efd9f48f42c550d56650",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x3c0780ebb6b4efc1a5b81fb19c6aff5d75ebdb2e3417c00bb251e1c6c54c3845",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x068c0af810d78c58ddc5de51a2e24fbcf98a2b35c5c7c0306e5b240d12e1bc32",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xac0ea0525a1c29bd8f42fb6a9e157edc5d0c26ff8c4ba78d2f71d86db783d007",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xc61ae4321497542ba1427935e722076a704659ade22e53c91f52dcd9df0c6d69",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xdac42eb19dea08ef0b54ced9e4a44bd8044665342d006da2eba55a392123d763",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x22b302ca1d59f9998be6f94b2dbb834897294cccb9c23266da69981b99db9f0d",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xd2ba134c7b5d0a31bf3636b7a5c0b6b2366ba3d8f05b205d05ab22cd32289242",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xee2a79cf027bb36ea140f0e4a4a37485c0b91438474052574998a10ebb21df43",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x9a3fbee89219ec9d46a70fef89a7dff248f625a94a27f0a1f046bed2faa05c68",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xc62066d2d0cfab7805c98d330a3f2f6e1ee153156af83f9862915e1e820f136f",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xe4fd7239d1a51d936149a8123a164f4a97dd6db9ca6a8c9c4de56a41a59f593c",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x1829ad3a9c1e68c6566f30ba2e191cd53376c96fe7c1d35bb42871e7a7cd134b",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0x787c9f9c3cd3d5ace05a6d4b9875c560017676df18cd1572acce7a337c987760",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      },
-      {
-        "account": "0xbeb5f947177e6c0de50b40a1472ace7460fe7907070763ed13fea4ef3e6b1820",
-        "total_stake": 15,
-        "self_stake": 0,
-        "nominators_count": 15
-      }
-    ],
+    "active_validators": [],
     "statistics": {
-      "minimum_stake": 15,
-      "average_stake": 15,
-      "total_staked": 285
+      "minimum_stake": 0,
+      "average_stake": 0,
+      "total_staked": 0
     }
   }
 }

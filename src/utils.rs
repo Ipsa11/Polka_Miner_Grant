@@ -80,9 +80,9 @@ pub async fn storage_at(block: Option<Hash>, api: &ChainClient) -> Result<Storag
 }
 
 pub async fn storage_at_head(api: &Client) -> Result<Storage, Error> {
-	let hash = get_latest_finalized_head(api.chain_api()).await?;
-	println!("*** Hash {:?}",hash);
-	storage_at(Some(hash), api.chain_api()).await
+	// let hash = get_latest_finalized_head(api.chain_api()).await?;
+	println!("*** No need of hash ");
+	storage_at(None, api.chain_api()).await
 }
 
 pub async fn get_latest_finalized_head(api: &ChainClient) -> Result<Hash, Error> {

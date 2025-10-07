@@ -2,6 +2,8 @@
 
 use crate::commands::multi_block::types::TargetSnapshotPageOf;
 use crate::commands::multi_block::types::VoterSnapshotPageOf;
+use std::sync::Arc;
+use tokio::sync::Semaphore;
 use crate::{
 	client::Client,
 	commands::types::PredictConfig,
@@ -303,6 +305,164 @@ fn subxt_to_runtime_account(acc: SubxtAccountId) -> RuntimeAccountId32 {
 	RuntimeAccountId32::new(acc.0)
 }
 
+use futures::{stream::FuturesUnordered, StreamExt};
+
+const BATCH_SIZE: usize = 1000;
+const CONCURRENCY_LIMIT: usize = 100;
+
+
+
+// Alternative: Stream-based approach (even faster for large datasets)
+async fn fetch_nominators_streaming<T>(
+    storage: &Storage,
+) -> Result<Vec<(RuntimeAccountId32, u128, Vec<RuntimeAccountId32>)>, Error> {
+    log::info!("Starting streaming nominator fetch...");
+    
+    let semaphore = Arc::new(Semaphore::new(CONCURRENCY_LIMIT));
+    let mut all_voters = Vec::new();
+    
+    let mut iter = storage.iter(runtime::storage().staking().nominators_iter()).await?;
+    let mut pending = FuturesUnordered::new();
+    
+    loop {
+        // Fill pipeline
+        while pending.len() < CONCURRENCY_LIMIT {
+            match iter.try_next().await? {
+                Some(entry) => {
+                    if let Some(acc) = subxt_account_from_key_bytes(&entry.key_bytes) {
+                        let storage = storage.clone();
+                        let semaphore = semaphore.clone();
+                        log::info!("Storage storage");
+                        
+                        pending.push(async move {
+                            let _permit = semaphore.acquire().await.unwrap();
+                            
+                            // Create query builders first
+                            let nom_query = runtime::storage().staking().nominators(acc.clone());
+                            let ledger_query = runtime::storage().staking().ledger(acc.clone());
+                            
+                            let (noms_result, ledger_result) = tokio::join!(
+                                storage.fetch(&nom_query),
+                                storage.fetch(&ledger_query)
+                            );
+                            
+                            match (noms_result, ledger_result) {
+                                (Ok(Some(noms)), Ok(Some(ledger))) if ledger.total > 0 => {
+                                    let targets = noms
+                                        .targets
+                                        .0
+                                        .into_iter()
+                                        .map(subxt_to_runtime_account)
+                                        .collect::<Vec<_>>();
+                                    let runtime_acc = subxt_to_runtime_account(acc);
+                                    Some((runtime_acc, ledger.total as u128, targets))
+                                }
+                                _ => None,
+                            }
+                        });
+                    }
+                }
+                None => break,
+            }
+        }
+        
+        // Process one result
+        if let Some(result) = pending.next().await {
+            if let Some(voter) = result {
+                all_voters.push(voter);
+                
+                if all_voters.len() % 1000 == 0 {
+                    log::info!("Fetched {} voters...", all_voters.len());
+                }
+            }
+        } else {
+            break;
+        }
+    }
+    log::info!("Hi bhai bhai bhai");
+    // Drain remaining
+    while let Some(result) = pending.next().await {
+        if let Some(voter) = result {
+            all_voters.push(voter);
+        }
+    }
+    
+    log::info!("Fetch complete: {} voters", all_voters.len());
+    Ok(all_voters)
+}
+
+async fn fetch_nominators_in_batches<T>(
+    storage: &Storage,
+) -> Result<Vec<(RuntimeAccountId32, u128, Vec<RuntimeAccountId32>)>, Error> {
+    let mut all_voters = Vec::new();
+    let mut nominators_keys = Vec::new();
+
+    // Collect all nominator keys
+    if let Ok(mut iter) = storage.iter(runtime::storage().staking().nominators_iter()).await {
+        log::info!("nominators_keys {:?}",nominators_keys);
+        while let Some(entry) = iter.try_next().await? {
+            nominators_keys.push(entry.key_bytes);
+        }
+    }
+
+    log::info!("Total nominators: {}", nominators_keys.len());
+
+    // Process keys in chunks with limited concurrency
+    let mut tasks = FuturesUnordered::new();
+
+    for chunk in nominators_keys.chunks(BATCH_SIZE) {
+        let batch = chunk.to_vec();
+        let storage = storage.clone();
+
+        tasks.push(async move {
+            let mut local_voters = Vec::new();
+
+            for key_bytes in batch {
+                if let Some(acc) = subxt_account_from_key_bytes(&key_bytes) {
+                    if let Some(noms) = storage
+                        .fetch(&runtime::storage().staking().nominators(acc.clone()))
+                        .await?
+                    {
+                        let stake = storage
+                            .fetch(&runtime::storage().staking().ledger(acc.clone()))
+                            .await?
+                            .map(|l| l.total)
+                            .unwrap_or(0);
+
+                        if stake > 0 {
+                            let targets = noms
+                                .targets
+                                .0
+                                .into_iter()
+                                .map(subxt_to_runtime_account)
+                                .collect::<Vec<_>>();
+                            let runtime_acc = subxt_to_runtime_account(acc);
+                            local_voters.push((runtime_acc, stake, targets));
+                        }
+                    }
+                }
+            }
+
+            Ok::<_, Error>(local_voters)
+        });
+
+        // Limit concurrency
+        if tasks.len() >= CONCURRENCY_LIMIT {
+            if let Some(result) = tasks.next().await {
+                all_voters.extend(result?);
+            }
+        }
+    }
+
+    // Drain remaining
+    while let Some(result) = tasks.next().await {
+        all_voters.extend(result?);
+    }
+
+    Ok(all_voters)
+}
+
+
 async fn predict_with_live_data<T>(
     client: Client,
     desired_validators: u32,
@@ -347,58 +507,61 @@ where
     }
 	log::info!("Validators Agge bhai ");
 
+    let voters = fetch_nominators_streaming::<T>(&storage).await?;
+    log::info!("Collected {} voters", voters.len());
+
     // ---------------------------------
     // Collect nominators
     // ---------------------------------
-    let mut voters: Vec<(RuntimeAccountId32, u128, Vec<RuntimeAccountId32>)> = Vec::new();
+//     let mut voters: Vec<(RuntimeAccountId32, u128, Vec<RuntimeAccountId32>)> = Vec::new();
 
-	log::info!("Voter Agge bhai ");
+// 	log::info!("Voter Agge bhai ");
 
-    if let Ok(mut iter) = storage.iter(runtime::storage().staking().nominators_iter()).await {
-    log::info!("Starting to iterate over nominators...");
+//     if let Ok(mut iter) = storage.iter(runtime::storage().staking().nominators_iter()).await {
+//     log::info!("Starting to iterate over nominators...");
     
-    while let Some(entry) = iter.try_next().await? {
-        if let Some(acc) = subxt_account_from_key_bytes(&entry.key_bytes) {
-            log::info!("Processing account: {:?}", acc);
+//     while let Some(entry) = iter.try_next().await? {
+//         if let Some(acc) = subxt_account_from_key_bytes(&entry.key_bytes) {
+//             log::info!("Processing account: {:?}", acc);
 
-            // Fetch nominators using SubxtAccountId
-            if let Some(noms) = storage.fetch(&runtime::storage().staking().nominators(acc.clone())).await? {
-                log::info!("Found nominators for account: {:?}", acc);
+//             // Fetch nominators using SubxtAccountId
+//             if let Some(noms) = storage.fetch(&runtime::storage().staking().nominators(acc.clone())).await? {
+//                 log::info!("Found nominators for account: {:?}", acc);
 
-                let stake = storage
-                    .fetch(&runtime::storage().staking().ledger(acc.clone()))
-                    .await?
-                    .map(|l| l.total)
-                    .unwrap_or(0);
+//                 let stake = storage
+//                     .fetch(&runtime::storage().staking().ledger(acc.clone()))
+//                     .await?
+//                     .map(|l| l.total)
+//                     .unwrap_or(0);
 
-                log::info!("Stake for account {:?}: {}", acc, stake);
+//                 log::info!("Stake for account {:?}: {}", acc, stake);
 
-                if stake > 0 {
-                    // Convert targets to RuntimeAccountId32
-                    let targets = noms
-                        .targets
-                        .0
-                        .into_iter()
-                        .map(subxt_to_runtime_account)
-                        .collect::<Vec<_>>();
+//                 if stake > 0 {
+//                     // Convert targets to RuntimeAccountId32
+//                     let targets = noms
+//                         .targets
+//                         .0
+//                         .into_iter()
+//                         .map(subxt_to_runtime_account)
+//                         .collect::<Vec<_>>();
 
-                    let runtime_acc = subxt_to_runtime_account(acc); // convert now
-                    log::info!("Account {:?} has targets: {:?}", runtime_acc, targets);
+//                     let runtime_acc = subxt_to_runtime_account(acc); // convert now
+//                     log::info!("Account {:?} has targets: {:?}", runtime_acc, targets);
 
-                    voters.push((runtime_acc, stake, targets));
-                } else {
-                    log::info!("Skipping account {:?} due to zero stake", acc);
-                }
-            } else {
-                log::info!("No nominators found for account {:?}", acc);
-            }
-        } else {
-            log::warn!("Failed to decode account from key bytes: {:?}", entry.key_bytes);
-        }
-    }
+//                     voters.push((runtime_acc, stake, targets));
+//                 } else {
+//                     log::info!("Skipping account {:?} due to zero stake", acc);
+//                 }
+//             } else {
+//                 log::info!("No nominators found for account {:?}", acc);
+//             }
+//         } else {
+//             log::warn!("Failed to decode account from key bytes: {:?}", entry.key_bytes);
+//         }
+//     }
 
-    log::info!("Finished iterating over nominators. Total voters collected: {}", voters.len());
-}
+//     log::info!("Finished iterating over nominators. Total voters collected: {}", voters.len());
+// }
 
 
 	log::info!("Snapshot bnaooo");
@@ -407,23 +570,167 @@ where
     // ---------------------------------
     // Build bounded snapshots
     // ---------------------------------
-    let target_snapshot: TargetSnapshotPageOf<T> =
-        BoundedVec::try_from(validators.clone()).expect("Too many targets for one page");
+    // let target_snapshot: TargetSnapshotPageOf<T> =
+    //     BoundedVec::try_from(validators.clone()).expect("Too many targets for one page");
 
-    let voter_snapshot: Vec<VoterSnapshotPageOf<T>> = vec![
-        BoundedVec::try_from(
-            voters
+    // let voter_snapshot: Vec<VoterSnapshotPageOf<T>> = vec![
+    //     BoundedVec::try_from(
+    //         voters
+    //             .iter()
+    //             .map(|(n, stake, targets)| {
+    //                 let bounded_targets: BoundedVec<RuntimeAccountId32, T::MaxVotesPerVoter> =
+    //                     BoundedVec::try_from(targets.clone())
+    //                         .expect("Too many targets for one voter");
+    //                 (n.clone(), *stake as u64, bounded_targets)
+    //             })
+    //             .collect::<Vec<_>>(),
+    //     )
+    //     .expect("Too many voters for one page"),
+    // ];
+   log::info!(target: LOG_TARGET, "Building paginated snapshots...");
+
+let target_snapshot: TargetSnapshotPageOf<T> =
+    BoundedVec::try_from(validators.clone())
+        .map_err(|_| Error::Other(format!(
+            "Too many validators ({})",
+            validators.len()
+        )))?;
+
+log::info!(target: LOG_TARGET, "Target snapshot: {} validators", target_snapshot.len());
+
+// Get expected number of pages
+let n_pages = static_types::Pages::get();
+let total_voters = voters.len();
+
+// Calculate voters per page
+let voters_per_page = (total_voters + n_pages as usize - 1) / n_pages as usize;
+
+log::info!(
+    target: LOG_TARGET,
+    "Splitting {} voters across {} pages (~{} voters per page)",
+    total_voters,
+    n_pages,
+    voters_per_page
+);
+
+// Build voter pages
+let mut voter_snapshot: Vec<VoterSnapshotPageOf<T>> = Vec::new();
+let mut skipped_voters = 0;
+
+for (page_idx, voter_chunk) in voters.chunks(voters_per_page).enumerate() {
+    let mut page_voters = Vec::new();
+    
+    for (voter_acc, stake, targets) in voter_chunk {
+        // Bound the targets
+        let bounded_targets = if targets.len() <= T::MaxVotesPerVoter::get() as usize {
+            match BoundedVec::try_from(targets.clone()) {
+                Ok(bt) => bt,
+                Err(_) => {
+                    skipped_voters += 1;
+                    continue;
+                }
+            }
+        } else {
+            // Truncate if too many targets
+            log::warn!(
+                target: LOG_TARGET,
+                "Truncating voter targets from {} to {}",
+                targets.len(),
+                T::MaxVotesPerVoter::get()
+            );
+            let truncated: Vec<_> = targets
                 .iter()
-                .map(|(n, stake, targets)| {
-                    let bounded_targets: BoundedVec<RuntimeAccountId32, T::MaxVotesPerVoter> =
-                        BoundedVec::try_from(targets.clone())
-                            .expect("Too many targets for one voter");
-                    (n.clone(), *stake as u64, bounded_targets)
-                })
-                .collect::<Vec<_>>(),
-        )
-        .expect("Too many voters for one page"),
-    ];
+                .take(T::MaxVotesPerVoter::get() as usize)
+                .cloned()
+                .collect();
+            match BoundedVec::try_from(truncated) {
+                Ok(bt) => bt,
+                Err(_) => {
+                    skipped_voters += 1;
+                    continue;
+                }
+            }
+        };
+        
+        page_voters.push((voter_acc.clone(), *stake as u64, bounded_targets));
+    }
+    
+    // Try to create the page
+    match BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(page_voters.clone()) {
+        Ok(page) => {
+            log::info!(
+                target: LOG_TARGET,
+                "Page {}/{}: {} voters",
+                page_idx + 1,
+                n_pages,
+                page.len()
+            );
+            voter_snapshot.push(page);
+        }
+        Err(_) => {
+            // Page too large - split in half and try again
+            log::warn!(
+                target: LOG_TARGET,
+                "Page {} too large ({} voters), splitting...",
+                page_idx,
+                page_voters.len()
+            );
+            
+            let mid = page_voters.len() / 2;
+            
+            // First half
+            let first_half = page_voters[..mid].to_vec();
+            if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(first_half) {
+                voter_snapshot.push(page);
+            } else {
+                log::error!(target: LOG_TARGET, "Failed to create page from first half");
+            }
+            
+            // Second half
+            let second_half = page_voters[mid..].to_vec();
+            if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(second_half) {
+                voter_snapshot.push(page);
+            } else {
+                log::error!(target: LOG_TARGET, "Failed to create page from second half");
+            }
+        }
+    }
+}
+
+// Pad with empty pages if we have fewer than expected
+while (voter_snapshot.len() as u32) < n_pages {
+    voter_snapshot.push(BoundedVec::default());
+}
+
+// Verify we don't have too many pages
+if (voter_snapshot.len() as u32) > n_pages {
+    return Err(Error::Other(format!(
+        "Created {} pages but chain supports max {}",
+        voter_snapshot.len(),
+        n_pages
+    )));
+}
+
+let total_in_snapshot: usize = voter_snapshot.iter().map(|p| p.len()).sum();
+log::info!(
+    target: LOG_TARGET,
+    "Snapshot built: {} pages, {} voters ({}% coverage, {} skipped)",
+    voter_snapshot.len(),
+    total_in_snapshot,
+    (total_in_snapshot * 100) / total_voters,
+    skipped_voters
+);
+
+if skipped_voters > 0 {
+    log::warn!(
+        target: LOG_TARGET,
+        "Skipped {} voters due to capacity limits",
+        skipped_voters
+    );
+}
+
+    log::info!(target: LOG_TARGET, "Starting solution mining...");
+
 
     // ---------------------------------
     // Mine solution
