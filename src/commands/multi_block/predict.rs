@@ -491,135 +491,55 @@ async fn predict_with_live_data<T>(
 
 	log::info!(target: LOG_TARGET, "Target snapshot: {} validators", target_snapshot.len());
 
-	// Get expected number of pages
-	let n_pages = static_types::Pages::get();
-	let total_voters = voters.len();
+    // Build voter pages with strict per-page capacity
+    let n_pages = static_types::Pages::get();
+    let max_voters_per_page = T::VoterSnapshotPerBlock::get() as usize;
+    let max_targets_per_voter = T::MaxVotesPerVoter::get() as usize;
 
-	// Calculate voters per page
-	let voters_per_page = (total_voters + (n_pages as usize) - 1) / (n_pages as usize);
+    let mut voter_snapshot: Vec<VoterSnapshotPageOf<T>> = Vec::new();
+    let mut current_page: Vec<(RuntimeAccountId32, u64, BoundedVec<RuntimeAccountId32, T::MaxVotesPerVoter>)> =
+        Vec::with_capacity(max_voters_per_page);
+    let mut skipped_voters = 0usize;
 
-	log::info!(
-    target: LOG_TARGET,
-    "Splitting {} voters across {} pages (~{} voters per page)",
-    total_voters,
-    n_pages,
-    voters_per_page
-);
+    for (voter_acc, stake, targets) in voters {
+        // enforce per-voter target limit
+        let bounded_targets = if targets.len() <= max_targets_per_voter {
+            match BoundedVec::try_from(targets.clone()) {
+                Ok(bt) => bt,
+                Err(_) => { skipped_voters += 1; continue; }
+            }
+        } else {
+            let truncated: Vec<_> = targets.into_iter().take(max_targets_per_voter).collect();
+            match BoundedVec::try_from(truncated) {
+                Ok(bt) => bt,
+                Err(_) => { skipped_voters += 1; continue; }
+            }
+        };
 
-	// Build voter pages
-	let mut voter_snapshot: Vec<VoterSnapshotPageOf<T>> = Vec::new();
-	let mut skipped_voters = 0;
+        if current_page.len() == max_voters_per_page {
+            // finalize current page
+            if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(current_page.clone()) {
+                voter_snapshot.push(page);
+            }
+            current_page.clear();
 
-	for (page_idx, voter_chunk) in voters.chunks(voters_per_page).enumerate() {
-		let mut page_voters = Vec::new();
+            // stop if we've reached maximum allowed pages
+            if voter_snapshot.len() as u32 >= n_pages { break; }
+        }
 
-		for (voter_acc, stake, targets) in voter_chunk {
-			// Bound the targets
-			let bounded_targets = if targets.len() <= (T::MaxVotesPerVoter::get() as usize) {
-				match BoundedVec::try_from(targets.clone()) {
-					Ok(bt) => bt,
-					Err(_) => {
-						skipped_voters += 1;
-						continue;
-					}
-				}
-			} else {
-				// Truncate if too many targets
-				log::warn!(
-                target: LOG_TARGET,
-                "Truncating voter targets from {} to {}",
-                targets.len(),
-                T::MaxVotesPerVoter::get()
-            );
-				let truncated: Vec<_> = targets
-					.iter()
-					.take(T::MaxVotesPerVoter::get() as usize)
-					.cloned()
-					.collect();
-				match BoundedVec::try_from(truncated) {
-					Ok(bt) => bt,
-					Err(_) => {
-						skipped_voters += 1;
-						continue;
-					}
-				}
-			};
+        current_page.push((voter_acc.clone(), stake as u64, bounded_targets));
+    }
 
-			page_voters.push((voter_acc.clone(), *stake as u64, bounded_targets));
-		}
+    if !current_page.is_empty() && (voter_snapshot.len() as u32) < n_pages {
+        if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(current_page.clone()) {
+            voter_snapshot.push(page);
+        }
+    }
 
-		// Try to create the page
-		match BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(page_voters.clone()) {
-			Ok(page) => {
-				log::info!(
-                target: LOG_TARGET,
-                "Page {}/{}: {} voters",
-                page_idx + 1,
-                n_pages,
-                page.len()
-            );
-				voter_snapshot.push(page);
-			}
-			Err(_) => {
-				// Page too large - split in half and try again
-				log::warn!(
-                target: LOG_TARGET,
-                "Page {} too large ({} voters), splitting...",
-                page_idx,
-                page_voters.len()
-            );
-
-				let mid = page_voters.len() / 2;
-
-				// First half
-				let first_half = page_voters[..mid].to_vec();
-				if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(first_half) {
-					voter_snapshot.push(page);
-				} else {
-					log::error!(target: LOG_TARGET, "Failed to create page from first half");
-				}
-
-				// Second half
-				let second_half = page_voters[mid..].to_vec();
-				if let Ok(page) = BoundedVec::<_, T::VoterSnapshotPerBlock>::try_from(second_half) {
-					voter_snapshot.push(page);
-				} else {
-					log::error!(target: LOG_TARGET, "Failed to create page from second half");
-				}
-			}
-		}
-	}
-
-	// Pad with empty pages if we have fewer than expected
-	while (voter_snapshot.len() as u32) < n_pages {
-		voter_snapshot.push(BoundedVec::default());
-	}
-
-	// Verify we don't have too many pages
-	if (voter_snapshot.len() as u32) > n_pages {
-		return Err(Error::Other(format!("Created {} pages but chain supports max {}", voter_snapshot.len(), n_pages)));
-	}
-
-	let total_in_snapshot: usize = voter_snapshot
-		.iter()
-		.map(|p| p.len())
-		.sum();
-	log::info!(
-    target: LOG_TARGET,
-    "Snapshot built: {} pages, {} voters ({}% coverage, {} skipped)",
-    voter_snapshot.len(),
-    total_in_snapshot,
-    (total_in_snapshot * 100) / total_voters,
-    skipped_voters
-);
-
-	if skipped_voters > 0 {
-		log::warn!(
-        target: LOG_TARGET,
-        "Skipped {} voters due to capacity limits",
-        skipped_voters
-    );
-	}
+    // pad remaining pages with empty ones
+    while (voter_snapshot.len() as u32) < n_pages {
+        voter_snapshot.push(BoundedVec::default());
+    }
 
 	log::info!(target: LOG_TARGET, "Starting solution mining...");
 

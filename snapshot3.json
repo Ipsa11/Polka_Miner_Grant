@@ -1,0 +1,131 @@
+{
+    "metadata": {
+      "timestamp": "2025-10-06T07:57:04.654160435+00:00",
+      "block_number": 12960770,
+      "chain": "Westend Asset Hub",
+      "desired_validators": 19
+    },
+    "results": {
+      "active_validators": [
+        {
+          "account": "0x661127faa225949b1c1a48f834f43fa626c9f58fa0c7e522551d4b9616e18c37",
+          "total_stake": 151493158064854697,
+          "self_stake": 74029500325442578,
+          "nominators_count": 21776
+        },
+        {
+          "account": "0x18164fa6f9ce28792fb781185e8de4e6eaae34c0f545e5864952fe23c183df0c",
+          "total_stake": 137881308915148531,
+          "self_stake": 61079753979071666,
+          "nominators_count": 21839
+        },
+        {
+          "account": "0x568f4b844412e983472f1a1a68e982aa78a29558765f79541175fa488893b117",
+          "total_stake": 137367007336011020,
+          "self_stake": 60963135967040564,
+          "nominators_count": 21708
+        },
+        {
+          "account": "0x36d6be834cd4a0638a346adb184c71c8186965540563713d5d2c97956e20b255",
+          "total_stake": 135934475221489810,
+          "self_stake": 60520741479336579,
+          "nominators_count": 21706
+        },
+        {
+          "account": "0x96b33e0a9647f13198ad16a2812c549a363646a3a7ddbdcc5590f5839c408c62",
+          "total_stake": 120479698581598090,
+          "self_stake": 40784842756023338,
+          "nominators_count": 21903
+        },
+        {
+          "account": "0xaebb0211dbb07b4d335a657257b8ac5e53794c901e4f616d4a254f2490c43934",
+          "total_stake": 120442830263311025,
+          "self_stake": 43542121932943759,
+          "nominators_count": 21733
+        },
+        {
+          "account": "0xa8ceab88b82d857d3e64a8d67db0d3e476054a42572522ae359b962b2818305f",
+          "total_stake": 118998405778357477,
+          "self_stake": 40622158585252103,
+          "nominators_count": 21840
+        },
+        {
+          "account": "0x00477d547115aca2d56792295e3366b37371876a489ee0b15e414d0931a0da20",
+          "total_stake": 118804922838166997,
+          "self_stake": 41240878481552023,
+          "nominators_count": 21805
+        },
+        {
+          "account": "0xc6332dd72fc6d33bf202a531e66cfaf46e6161640f91864f23f82b31b38c5f11",
+          "total_stake": 118137161232249280,
+          "self_stake": 38707614800573814,
+          "nominators_count": 21971
+        },
+        {
+          "account": "0x08270e4436898c595fe5f85a2fe671ba028b35be25c83fd58758ef5642051113",
+          "total_stake": 116035689908658566,
+          "self_stake": 38267057799330103,
+          "nominators_count": 21880
+        },
+        {
+          "account": "0x8c5a3003181155566fda64162db5c8a94b54ddd0f1210bbe340f16bdbb7f524b",
+          "total_stake": 115848149069104183,
+          "self_stake": 38259101854931004,
+          "nominators_count": 21887
+        },
+        {
+          "account": "0xf268995cc38974ce0686df1364875f26f2c32b246ddc18835512c3f9969f5836",
+          "total_stake": 113292142660622252,
+          "self_stake": 36408119905752056,
+          "nominators_count": 21737
+        },
+        {
+          "account": "0x9ae581fef1fc06828723715731adcf810e42ce4dadad629b1b7fa5c3c144a81d",
+          "total_stake": 111280214076596110,
+          "self_stake": 28423620241904598,
+          "nominators_count": 21874
+        },
+        {
+          "account": "0x08264834504a64ace1373f0c8ed5d57381ddf54a2f67a318fa42b1352681606d",
+          "total_stake": 110254079446314861,
+          "self_stake": 27121039213923505,
+          "nominators_count": 21945
+        },
+        {
+          "account": "0xce1e7a68b9cc0fe5689ba1f535d1a166bcd9694b81ae85de3b87383c7a920d20",
+          "total_stake": 100392831900691054,
+          "self_stake": 36012365362163,
+          "nominators_count": 17
+        },
+        {
+          "account": "0x767f36484b1e2acf5c265c7a64bfb46e95259c66a8189bbcd216195def436852",
+          "total_stake": 99415350159234946,
+          "self_stake": 19581763500098089,
+          "nominators_count": 21947
+        },
+        {
+          "account": "0xc21ad1e5198cc0dc3b0f9f43a50f292678f63235ea321e59385d7ee45a720836",
+          "total_stake": 95241868460375584,
+          "self_stake": 22475517710823852,
+          "nominators_count": 852
+        },
+        {
+          "account": "0x82920e7fe8e88de91ef6323070cb16029feca97fcdbbbe1e6c74fe6538d39421",
+          "total_stake": 62637824757947091,
+          "self_stake": 6684130316286846,
+          "nominators_count": 138
+        },
+        {
+          "account": "0x04b42c45250880695e6cec68c5adce35a0e2ec60ed46b77b734ad6020b991658",
+          "total_stake": 59115019683690964,
+          "self_stake": 1232527682354950,
+          "nominators_count": 217
+        }
+      ],
+      "statistics": {
+        "minimum_stake": 59115019683690964,
+        "average_stake": 112792217808127502,
+        "total_staked": 2143052138354422538
+      }
+    }
+  }

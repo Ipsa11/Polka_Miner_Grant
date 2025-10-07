@@ -1,0 +1,16 @@
+{
+  "metadata": {
+    "timestamp": "2025-10-07T10:12:48.888158122+00:00",
+    "block_number": 12969946,
+    "chain": "Westend Asset Hub",
+    "desired_validators": 19
+  },
+  "results": {
+    "active_validators": [],
+    "statistics": {
+      "minimum_stake": 0,
+      "average_stake": 0,
+      "total_staked": 0
+    }
+  }
+}
