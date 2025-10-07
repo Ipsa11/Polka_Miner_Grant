@@ -1,9 +1,9 @@
 {
   "metadata": {
-    "timestamp": "2025-10-07T09:14:03.506060729+00:00",
-    "block_number": 12969619,
+    "timestamp": "2025-10-07T10:01:53.981511071+00:00",
+    "block_number": 12969877,
     "chain": "Westend Asset Hub",
-    "desired_validators": 297
+    "desired_validators": 19
   },
   "results": {
     "active_validators": [],
